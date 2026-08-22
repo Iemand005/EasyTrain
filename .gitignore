@@ -1,0 +1,11 @@
+__pycache__/
+.states
+assets/external/
+*.db
+.web
+*.py[cod]
+private/
+reflex.lock/bun.lock
+hf_cache/
+.reflex_uploads/
+uploaded_files/
