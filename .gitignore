@@ -9,3 +9,4 @@ reflex.lock/bun.lock
 hf_cache/
 .reflex_uploads/
 uploaded_files/
+adapters/

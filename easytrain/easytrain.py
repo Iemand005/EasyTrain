@@ -76,9 +76,7 @@ class TrainingState:
 # Global state manager
 STATE = TrainingState()
 
-
 def tokenize_dataset(file_path, tokenizer, max_seq_len):
-    """Standalone dataset tokenizer for JSONL format {"input": str, "output": str}."""
     tokenized = []
     with open(file_path, 'r', encoding='utf-8') as f:
         for line in f:
@@ -86,28 +84,23 @@ def tokenize_dataset(file_path, tokenizer, max_seq_len):
                 continue
 
             data = json.loads(line)
-            prompt = data.get('input', '')
+            prompt     = data.get('input', '')
             completion = data.get('output', '')
 
-            prompt_ids = tokenizer.encode(prompt, add_special_tokens=True)
-            full_ids = tokenizer.encode(
-                prompt + completion,
-                add_special_tokens=True
-            )
+            prompt_ids     = tokenizer.encode(prompt,     add_special_tokens=True)
+            completion_ids = tokenizer.encode(completion, add_special_tokens=False)  # no BOS on completion
+
+            full_ids = prompt_ids + completion_ids
 
             if len(full_ids) > max_seq_len:
                 full_ids = full_ids[:max_seq_len]
 
-            labels = full_ids.copy()
-
-            # Mask the prompt so we only train on the completion
-            mask_len = min(len(prompt_ids), len(labels))
-            for i in range(mask_len):
-                labels[i] = -100
+            labels = [-100] * len(prompt_ids) + completion_ids.copy()
+            labels = labels[:max_seq_len]  # truncate labels to match
 
             tokenized.append({
                 'input_ids': full_ids,
-                'labels': labels
+                'labels':    labels,
             })
 
     return tokenized
