@@ -1,6 +1,5 @@
 @echo off
 if exist ".\reflex.lock\bun.lock" del ".\reflex.lock\bun.lock"
-if exist ".\hf_cache\" rmdir /s /q ".\hf_cache"
 if exist ".\.reflex_uploads\" rmdir /s /q ".\.reflex_uploads"
 if exist ".\.states\" rmdir /s /q ".\.states"
 if exist ".\.web\" rmdir /s /q ".\.web"
