@@ -53,7 +53,7 @@ class TrainingState:
             self.step = 0
             self.total_steps = 0
             self.epoch = 0.0
-            self.loss_history = []
+            self.loss_history = deque(maxlen=1000)
             self.logs = deque(maxlen=400)
             self.error = None
             self.start_time = None
@@ -87,20 +87,24 @@ def tokenize_dataset(file_path, tokenizer, max_seq_len):
             prompt     = data.get('input', '')
             completion = data.get('output', '')
 
-            prompt_ids     = tokenizer.encode(prompt,     add_special_tokens=True)
+            prompt_ids     = tokenizer.encode(prompt,     add_special_tokens=False)
             completion_ids = tokenizer.encode(completion, add_special_tokens=False)  # no BOS on completion
 
             full_ids = prompt_ids + completion_ids
+            labels   = [-100] * len(prompt_ids) + list(completion_ids)  # mask prompt, train on completion
 
             if len(full_ids) > max_seq_len:
                 full_ids = full_ids[:max_seq_len]
+                labels   = labels[:max_seq_len]   # truncate labels in sync
 
-            labels = [-100] * len(prompt_ids) + completion_ids.copy()
-            labels = labels[:max_seq_len]  # truncate labels to match
+            pad = max_seq_len - len(full_ids)
+            full_ids = full_ids + [tokenizer.pad_token_id] * pad
+            labels   = labels   + [-100] * pad
 
             tokenized.append({
-                'input_ids': full_ids,
-                'labels':    labels,
+                'input_ids':      full_ids,
+                'attention_mask': [1] * (max_seq_len - pad) + [0] * pad,
+                'labels':         labels,
             })
 
     return tokenized
@@ -195,42 +199,10 @@ def _run_training_thread(cfg: TrainConfig, dataset_path: str):
             f'{total:,} total ({100 * trainable / total:.2f}%).'
         )
 
-        def collate(features: list[dict]) -> dict:
-            maxlen = max(
-                (len(f['input_ids']) for f in features)
-            )
-
-            pad_id = tokenizer.pad_token_id
-
-            batch = {
-                'input_ids': [],
-                'attention_mask': [],
-                'labels': []
-            }
-
-            for f in features:
-                ids, labels = (
-                    f['input_ids'],
-                    f['labels']
-                )
-
-                pad = maxlen - len(ids)
-
-                batch['input_ids'].append(
-                    ids + [pad_id] * pad
-                )
-
-                batch['attention_mask'].append(
-                    [1] * len(ids) + [0] * pad
-                )
-
-                batch['labels'].append(
-                    labels + [-100] * pad
-                )
-
+        def collate(features):
             return {
-                k: torch.tensor(v, dtype=torch.long)
-                for k, v in batch.items()
+                k: torch.tensor([f[k] for f in features], dtype=torch.long)
+                for k in ('input_ids', 'attention_mask', 'labels')
             }
 
         class ProgressCallback(TrainerCallback):
@@ -243,7 +215,7 @@ def _run_training_thread(cfg: TrainConfig, dataset_path: str):
                 )
 
             def on_log(self, args, ts, control, logs=None, **kw):
-                if not logs or 'loss' in logs:
+                if logs and 'loss' in logs:
                     STATE.step = ts.global_step
                     STATE.epoch = round(ts.epoch or 0, 2)
 
@@ -260,6 +232,9 @@ def _run_training_thread(cfg: TrainConfig, dataset_path: str):
                         f"loss={logs.get('loss', 0):.4f} "
                         f"lr={logs.get('learning_rate', 0):.2e}"
                     )
+                    
+                    if len(ts.log_history) > 10:
+                        ts.log_history = ts.log_history[-10:]
 
             def on_step_end(self, args, ts, control, **kw):
                 STATE.step = ts.global_step
